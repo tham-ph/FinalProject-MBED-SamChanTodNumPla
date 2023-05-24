@@ -1,5 +1,6 @@
 
 stm32/*
 !stm32/Core
+!stm32/stm32.ioc
 
 
