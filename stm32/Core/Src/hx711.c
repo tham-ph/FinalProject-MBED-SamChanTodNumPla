@@ -2,10 +2,6 @@
 
 void HX711_Init(hx711_t *hx711, GPIO_TypeDef* gpioSck, uint16_t pinSck, GPIO_TypeDef* gpioData, uint16_t pinData, int gain)
 {
-	hx711->gpioSck = gpioSck;
-	hx711->pinSck = pinSck;
-	hx711->gpioData = gpioData;
-	hx711->pinData = pinData;
 	hx711->gramRatio = 1;
 	hx711->gain = gain;
 

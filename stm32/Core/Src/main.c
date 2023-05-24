@@ -1,23 +1,24 @@
 /* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * @file           : main.c
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2023 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file           : main.c
+ * @brief          : Main program body
+ ******************************************************************************
+ * @attention
+ *
+ * Copyright (c) 2023 STMicroelectronics.
+ * All rights reserved.
+ *
+ * This software is licensed under terms that can be found in the LICENSE file
+ * in the root directory of this software component.
+ * If no LICENSE file comes with this software, it is provided AS-IS.
+ *
+ ******************************************************************************
+ */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "cmsis_os.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -39,9 +40,40 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+TIM_HandleTypeDef htim1;
+TIM_HandleTypeDef htim2;
+
 UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
+/* Definitions for defaultTask */
+osThreadId_t defaultTaskHandle;
+const osThreadAttr_t defaultTask_attributes = {
+  .name = "defaultTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for ultraSonicTask */
+osThreadId_t ultraSonicTaskHandle;
+const osThreadAttr_t ultraSonicTask_attributes = {
+  .name = "ultraSonicTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityBelowNormal,
+};
+/* Definitions for loadCellTask */
+osThreadId_t loadCellTaskHandle;
+const osThreadAttr_t loadCellTask_attributes = {
+  .name = "loadCellTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
+/* Definitions for closeBinTask */
+osThreadId_t closeBinTaskHandle;
+const osThreadAttr_t closeBinTask_attributes = {
+  .name = "closeBinTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
 /* USER CODE BEGIN PV */
 hx711_t loadcell;
 /* USER CODE END PV */
@@ -51,12 +83,20 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_USART1_UART_Init(void);
+static void MX_TIM2_Init(void);
+static void MX_TIM1_Init(void);
+void StartDefaultTask(void *argument);
+void StartUltraSonic(void *argument);
+void StartLoadCell(void *argument);
+void StartCloseBin(void *argument);
+
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
 
 /* USER CODE END 0 */
 
@@ -90,27 +130,52 @@ int main(void)
   MX_GPIO_Init();
   MX_USART2_UART_Init();
   MX_USART1_UART_Init();
+  MX_TIM2_Init();
+  MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
-  HX711_Init(&loadcell, GPIOA, GPIO_PIN_4, GPIOB, GPIO_PIN_0, 3);
-  HX711_Calibrate(&loadcell, (8227020 - 8180820) / 179);
+
   /* USER CODE END 2 */
 
+  /* Init scheduler */
+  osKernelInitialize();
+/* USER CODE BEGIN Header */
+/**
+ ******************************************************************************
+ * @file           : main.c
+ * @brief          : Main program body
+ ******************************************************************************
+ * @attention
+ *
+ * Copyright (c) 2023 STMicroelectronics.
+ * All rights reserved.
+ *
+ * This software is licensed under terms that can be found in the LICENSE file
+ * in the root directory of this software component.
+ * If no LICENSE file comes with this software, it is provided AS-IS.
+ *
+ ******************************************************************************
+ */
+/* USER CODE END Header */
+/**
+* @}
+*/
+/**
+* @}
+*/
+
+  /* Start scheduler */
+  osKernelStart();
+
+  /* We should never get here as control is now taken by the scheduler */
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  while (1)
-  {
-	HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
 
-	int weight = HX711_GetWeight(&loadcell); // gram
-	char data[50] = {};
-	int sz = sprintf(data, "%d\r\n", weight);
-	HAL_UART_Transmit(&huart1, data, sz, 100);
+	while (1) {
 
-	HAL_Delay(1000);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-  }
+	}
   /* USER CODE END 3 */
 }
 
@@ -158,6 +223,130 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief TIM1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM1_Init(void)
+{
+
+  /* USER CODE BEGIN TIM1_Init 0 */
+
+  /* USER CODE END TIM1_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
+
+  /* USER CODE BEGIN TIM1_Init 1 */
+
+  /* USER CODE END TIM1_Init 1 */
+  htim1.Instance = TIM1;
+  htim1.Init.Prescaler = 84 - 1;
+  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim1.Init.Period = 100 - 1;
+  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim1.Init.RepetitionCounter = 0;
+  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_PWM_Init(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
+  sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
+  sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
+  sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
+  sBreakDeadTimeConfig.DeadTime = 0;
+  sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
+  sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
+  sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
+  if (HAL_TIMEx_ConfigBreakDeadTime(&htim1, &sBreakDeadTimeConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM1_Init 2 */
+
+  /* USER CODE END TIM1_Init 2 */
+  HAL_TIM_MspPostInit(&htim1);
+
+}
+
+/**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 16800 - 1;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 100 - 1;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
+  HAL_TIM_MspPostInit(&htim2);
+
 }
 
 /**
@@ -242,7 +431,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, LD2_Pin|GPIO_PIN_11, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : B1_Pin */
   GPIO_InitStruct.Pin = B1_Pin;
@@ -250,18 +439,194 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : LD2_Pin */
-  GPIO_InitStruct.Pin = LD2_Pin;
+  /*Configure GPIO pin : PA1 */
+  GPIO_InitStruct.Pin = GPIO_PIN_1;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : LD2_Pin PA11 */
+  GPIO_InitStruct.Pin = LD2_Pin|GPIO_PIN_11;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PB6 */
+  GPIO_InitStruct.Pin = GPIO_PIN_6;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
 }
 
 /* USER CODE BEGIN 4 */
 
 /* USER CODE END 4 */
+
+/* USER CODE BEGIN Header_StartDefaultTask */
+/**
+ * @brief  Function implementing the defaultTask thread.
+ * @param  argument: Not used
+ * @retval None
+ */
+/* USER CODE END Header_StartDefaultTask */
+void StartDefaultTask(void *argument)
+{
+  /* USER CODE BEGIN 5 */
+;
+	/* Infinite loop */
+	for (;;) {
+		osDelay(1);
+	}
+  /* USER CODE END 5 */
+}
+
+/* USER CODE BEGIN Header_StartUltraSonic */
+/**
+* @brief Function implementing the ultraSonicTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartUltraSonic */
+void StartUltraSonic(void *argument)
+{
+	/* USER CODE BEGIN StartUltraSonic */
+	int hit = 0;
+	int miss = 0;
+	uint8_t state = 0;
+
+	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+	TIM1->CCR1 = 20;
+
+	/* Infinite loop */
+	for (;;) {
+
+		int delay = 1000001;
+		int echo = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_6);
+
+		if (echo) {
+			delay = 0;
+			while (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_6)) {
+				delay++;
+			}
+		}
+
+		if (delay < 1000001) {
+
+			uint8_t pData[7] = "       ";
+			sprintf(pData, "%d\r\n", delay);
+			HAL_UART_Transmit(&huart2, &pData, sizeof(pData), HAL_MAX_DELAY);
+
+			if (delay > 300) {
+				if (miss++ > 20) {
+					hit = 0;
+				}
+			} else {
+				if (hit++ > 20) {
+					miss = 0;
+				}
+			}
+
+			if (miss == 0 || hit / miss >= 1) {
+				if (state == 0) {
+					HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, 1);
+					HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, 1);
+					state = 1;
+				}
+			} else {
+				if (state == 1) {
+					HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, 0);
+					HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, 0);
+					state = 0;
+				}
+			}
+		}
+		osDelay(10);
+	}
+	/* USER CODE END StartUltraSonic */
+}
+
+/* USER CODE BEGIN Header_StartLoadCell */
+/**
+* @brief Function implementing the loadCellTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartLoadCell */
+void StartLoadCell(void *argument)
+{
+	/* USER CODE BEGIN StartLoadCell */
+	HAL_TIM_Base_Start(&htim2);
+	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+
+	HX711_Init(&loadcell, GPIOA, GPIO_PIN_4, GPIOB, GPIO_PIN_0, 3);
+	HX711_Calibrate(&loadcell, (8227020 - 8180820) / 179);
+
+	/* Infinite loop */
+	for (;;) {
+		int weight = HX711_GetWeight(&loadcell); // gram
+		char data[50] = { };
+		int sz = sprintf(data, "%d\r\n", weight);
+		//HAL_UART_Transmit(&huart2, data, sz, 100);
+		HAL_UART_Transmit(&huart1, data, sz, 100);
+		osDelay(1000);
+	}
+	/* USER CODE END StartLoadCell */
+}
+
+/* USER CODE BEGIN Header_StartCloseBin */
+/**
+* @brief Function implementing the closeBinTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartCloseBin */
+void StartCloseBin(void *argument)
+{
+	/* USER CODE BEGIN StartCloseBin */
+	int holdTime = 0;
+	/* Infinite loop */
+	for (;;) {
+		if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_1)) {
+			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, 1);
+			TIM2->CCR1 = 3;
+			holdTime = 5;
+		} else {
+			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, 0);
+		}
+
+		if (holdTime > 0)
+
+			holdTime--;
+		else {
+			TIM2->CCR1 = 13; //close
+		}
+		osDelay(1000);
+	}
+	/* USER CODE END StartCloseBin */
+}
+
+/**
+  * @brief  Period elapsed callback in non blocking mode
+  * @note   This function is called  when TIM3 interrupt took place, inside
+  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
+  * a global variable "uwTick" used as application time base.
+  * @param  htim : TIM handle
+  * @retval None
+  */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  /* USER CODE BEGIN Callback 0 */
+
+  /* USER CODE END Callback 0 */
+  if (htim->Instance == TIM3) {
+    HAL_IncTick();
+  }
+  /* USER CODE BEGIN Callback 1 */
+
+  /* USER CODE END Callback 1 */
+}
 
 /**
   * @brief  This function is executed in case of error occurrence.
@@ -270,11 +635,10 @@ static void MX_GPIO_Init(void)
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
-  __disable_irq();
-  while (1)
-  {
-  }
+	/* User can add his own implementation to report the HAL error return state */
+	__disable_irq();
+	while (1) {
+	}
   /* USER CODE END Error_Handler_Debug */
 }
 
