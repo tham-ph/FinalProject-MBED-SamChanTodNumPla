@@ -96,8 +96,64 @@ void StartCloseBin(void *argument);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+int hit = 0;
+int miss = 0;
+uint8_t state = 0;
+/*Size of FIFO*/
+int size = 20;
+/*Do not need to fix below*/
+
+int oldest_idx = 0;
+int total;
+int delays[20];
 
 
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+	if (GPIO_Pin == GPIO_PIN_6) {
+
+		int delay = 1000001;
+		int echo = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_6);
+
+		if (echo) {
+			delay = 0;
+			while (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_6)) {
+				delay++;
+			}
+		}
+
+		if (delay < 1000001 && delay > 49) {
+
+			total -= delays[oldest_idx];
+			delays[oldest_idx] = delay;
+			oldest_idx++;
+			total += delay;
+			if (oldest_idx > size - 1)
+				oldest_idx = 0;
+
+			//avg delay in FIFO
+			int avg = total / size;
+			uint8_t pData[7] = "       ";
+			sprintf(pData, "%d\r\n", avg);
+			HAL_UART_Transmit(&huart2, &pData, sizeof(pData), HAL_MAX_DELAY);
+
+			if (avg < 500) {
+				if (state == 0) {
+					HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, 1);
+					HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, 1);
+					state = 1;
+				}
+			} else {
+				if (state == 1) {
+					HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, 0);
+					HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, 0);
+					state = 0;
+				}
+			}
+		}
+		osDelay(10);
+	}
+
+}
 /* USER CODE END 0 */
 
 /**
@@ -138,30 +194,43 @@ int main(void)
 
   /* Init scheduler */
   osKernelInitialize();
-/* USER CODE BEGIN Header */
-/**
- ******************************************************************************
- * @file           : main.c
- * @brief          : Main program body
- ******************************************************************************
- * @attention
- *
- * Copyright (c) 2023 STMicroelectronics.
- * All rights reserved.
- *
- * This software is licensed under terms that can be found in the LICENSE file
- * in the root directory of this software component.
- * If no LICENSE file comes with this software, it is provided AS-IS.
- *
- ******************************************************************************
- */
-/* USER CODE END Header */
-/**
-* @}
-*/
-/**
-* @}
-*/
+
+  /* USER CODE BEGIN RTOS_MUTEX */
+	/* add mutexes, ... */
+  /* USER CODE END RTOS_MUTEX */
+
+  /* USER CODE BEGIN RTOS_SEMAPHORES */
+	/* add semaphores, ... */
+  /* USER CODE END RTOS_SEMAPHORES */
+
+  /* USER CODE BEGIN RTOS_TIMERS */
+	/* start timers, add new ones, ... */
+  /* USER CODE END RTOS_TIMERS */
+
+  /* USER CODE BEGIN RTOS_QUEUES */
+	/* add queues, ... */
+  /* USER CODE END RTOS_QUEUES */
+
+  /* Create the thread(s) */
+  /* creation of defaultTask */
+  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+
+  /* creation of ultraSonicTask */
+  ultraSonicTaskHandle = osThreadNew(StartUltraSonic, NULL, &ultraSonicTask_attributes);
+
+  /* creation of loadCellTask */
+  loadCellTaskHandle = osThreadNew(StartLoadCell, NULL, &loadCellTask_attributes);
+
+  /* creation of closeBinTask */
+  closeBinTaskHandle = osThreadNew(StartCloseBin, NULL, &closeBinTask_attributes);
+
+  /* USER CODE BEGIN RTOS_THREADS */
+	/* add threads, ... */
+  /* USER CODE END RTOS_THREADS */
+
+  /* USER CODE BEGIN RTOS_EVENTS */
+	/* add events, ... */
+  /* USER CODE END RTOS_EVENTS */
 
   /* Start scheduler */
   osKernelStart();
@@ -247,7 +316,7 @@ static void MX_TIM1_Init(void)
   htim1.Instance = TIM1;
   htim1.Init.Prescaler = 84 - 1;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 100 - 1;
+  htim1.Init.Period = 1000 - 1;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -454,9 +523,13 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin : PB6 */
   GPIO_InitStruct.Pin = GPIO_PIN_6;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
 
 }
 
@@ -474,7 +547,7 @@ static void MX_GPIO_Init(void)
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
-;
+
 	/* Infinite loop */
 	for (;;) {
 		osDelay(1);
@@ -484,116 +557,75 @@ void StartDefaultTask(void *argument)
 
 /* USER CODE BEGIN Header_StartUltraSonic */
 /**
-* @brief Function implementing the ultraSonicTask thread.
-* @param argument: Not used
-* @retval None
-*/
+ * @brief Function implementing the ultraSonicTask thread.
+ * @param argument: Not used
+ * @retval None
+ */
 /* USER CODE END Header_StartUltraSonic */
 void StartUltraSonic(void *argument)
 {
-	/* USER CODE BEGIN StartUltraSonic */
-	int hit = 0;
-	int miss = 0;
-	uint8_t state = 0;
-
+  /* USER CODE BEGIN StartUltraSonic */
 	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
-	TIM1->CCR1 = 20;
-
+	TIM1->CCR1 = 10;
+	total = 20 * 100001;
+	for (int i = 0; i < size; i++) {
+		delays[i] = 100001;
+	}
 	/* Infinite loop */
 	for (;;) {
-
-		int delay = 1000001;
-		int echo = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_6);
-
-		if (echo) {
-			delay = 0;
-			while (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_6)) {
-				delay++;
-			}
-		}
-
-		if (delay < 1000001) {
-
-			uint8_t pData[7] = "       ";
-			sprintf(pData, "%d\r\n", delay);
-			HAL_UART_Transmit(&huart2, &pData, sizeof(pData), HAL_MAX_DELAY);
-
-			if (delay > 300) {
-				if (miss++ > 20) {
-					hit = 0;
-				}
-			} else {
-				if (hit++ > 20) {
-					miss = 0;
-				}
-			}
-
-			if (miss == 0 || hit / miss >= 1) {
-				if (state == 0) {
-					HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, 1);
-					HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, 1);
-					state = 1;
-				}
-			} else {
-				if (state == 1) {
-					HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, 0);
-					HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, 0);
-					state = 0;
-				}
-			}
-		}
-		osDelay(10);
+		osDelay(1);
 	}
-	/* USER CODE END StartUltraSonic */
+  /* USER CODE END StartUltraSonic */
 }
 
 /* USER CODE BEGIN Header_StartLoadCell */
 /**
-* @brief Function implementing the loadCellTask thread.
-* @param argument: Not used
-* @retval None
-*/
+ * @brief Function implementing the loadCellTask thread.
+ * @param argument: Not used
+ * @retval None
+ */
 /* USER CODE END Header_StartLoadCell */
 void StartLoadCell(void *argument)
 {
-	/* USER CODE BEGIN StartLoadCell */
+  /* USER CODE BEGIN StartLoadCell */
 	HAL_TIM_Base_Start(&htim2);
 	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
 
 	HX711_Init(&loadcell, GPIOA, GPIO_PIN_4, GPIOB, GPIO_PIN_0, 3);
 	HX711_Calibrate(&loadcell, (8227020 - 8180820) / 179);
 
+	uint8_t isOpen = 0;
 	/* Infinite loop */
 	for (;;) {
 		int weight = HX711_GetWeight(&loadcell); // gram
 		char data[50] = { };
 		int sz = sprintf(data, "%d\r\n", weight);
-		//HAL_UART_Transmit(&huart2, data, sz, 100);
+		HAL_UART_Transmit(&huart2, data, sz, 100);
 		HAL_UART_Transmit(&huart1, data, sz, 100);
 		osDelay(1000);
 	}
-	/* USER CODE END StartLoadCell */
+  /* USER CODE END StartLoadCell */
 }
 
 /* USER CODE BEGIN Header_StartCloseBin */
 /**
-* @brief Function implementing the closeBinTask thread.
-* @param argument: Not used
-* @retval None
-*/
+ * @brief Function implementing the closeBinTask thread.
+ * @param argument: Not used
+ * @retval None
+ */
 /* USER CODE END Header_StartCloseBin */
 void StartCloseBin(void *argument)
 {
-	/* USER CODE BEGIN StartCloseBin */
+  /* USER CODE BEGIN StartCloseBin */
 	int holdTime = 0;
 	/* Infinite loop */
 	for (;;) {
 		if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_1)) {
-			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, 1);
+			//HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, 1);
 			TIM2->CCR1 = 3;
 			holdTime = 5;
 		} else {
-			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, 0);
+			//HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, 0);
 		}
 
 		if (holdTime > 0)
@@ -604,7 +636,7 @@ void StartCloseBin(void *argument)
 		}
 		osDelay(1000);
 	}
-	/* USER CODE END StartCloseBin */
+  /* USER CODE END StartCloseBin */
 }
 
 /**
